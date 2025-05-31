@@ -15,10 +15,12 @@ echo "Starting Kafka broker..."
 $KAFKA_HOME/bin/kafka-server-start.sh -daemon $KAFKA_CONFIG
 sleep 5
 
-# Start Kafka Connect
+# Start Kafka Connect with multiple sink configs
 echo "Starting Kafka Connect..."
-$KAFKA_HOME/bin/connect-standalone.sh -daemon $CONNECT_CONFIG $KAFKA_HOME/config/connectors/local-json-sink.properties
+$KAFKA_HOME/bin/connect-standalone.sh -daemon $CONNECT_CONFIG \
+    $KAFKA_HOME/config/sink-configs/pin_data_pin_sink.properties \
+    $KAFKA_HOME/config/sink-configs/pin_data_geo_sink.properties \
+    $KAFKA_HOME/config/sink-configs/pin_data_user_sink.properties
 sleep 5
 
 echo "All services started: Zookeeper, Kafka, and Kafka Connect."
-
