@@ -115,11 +115,6 @@ def run_infinite_post_data_loop():
                 print(f"[ERROR] Failed to fetch or post data: {e}")
             
 
-            # TODO Milestone 4 Task 1
-            # Note - This will work with the POST function
-            # FastAPI will infer what the payload and topic are automatically!
-            # Naturally this is only 1 topic you will have to replicate this for the other 2.
-            # response_geo = requests.post("http://localhost:8000/send_data?topic=pin_data.geo",  data=json.dumps(geo_result, default=str))
      
 # ---------- FastAPI Routes ----------
 
@@ -146,70 +141,73 @@ def retrieve_data():
 def run_webserver():
     uvicorn.run(app, host="localhost", port=8000)
 
+
+# --------- Batch Extraction ----------------
+
+import pandas as pd
+from kafka import KafkaConsumer
+from json import loads
+
+def extract_500_messages_per_topic():
+    topics = ['pin_data.pin', 'pin_data.geo', 'pin_data.user']
+    consumers = {}
+    data_buffers = {topic: [] for topic in topics}
+
+    # Create a KafkaConsumer per topic
+    for topic in topics:
+        consumers[topic] = KafkaConsumer(
+            topic,
+            bootstrap_servers="localhost:9092",
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+            group_id=f"{topic}_collector_group",
+            value_deserializer=lambda m: loads(m.decode('utf-8'))
+        )
+
+    print("Listening for messages...")
+
+    # Consume messages until 500 messages are collected for each topic
+    while not all(len(data_buffers[topic]) >= 500 for topic in topics):
+        for topic in topics:
+            if len(data_buffers[topic]) < 500:
+                msg_pack = consumers[topic].poll(timeout_ms=1000, max_records=10)
+                for _, messages in msg_pack.items():
+                    for msg in messages:
+                        data_buffers[topic].append(msg.value)
+                        if len(data_buffers[topic]) >= 500:
+                            break
+
+    # Close all consumers
+    for consumer in consumers.values():
+        consumer.close()
+
+    # Convert to DataFrames
+    df_pin = pd.DataFrame(data_buffers['pin_data.pin'])
+    df_geo = pd.DataFrame(data_buffers['pin_data.geo'])
+    df_user = pd.DataFrame(data_buffers['pin_data.user'])
+
+    # Save each DataFrame to a CSV file
+    df_pin.to_csv("batch_data/pin_data.csv", index=False)
+    df_geo.to_csv("batch_data/geo_data.csv", index=False)
+    df_user.to_csv("batch_data/user_data.csv", index=False)
+
+    print("Extraction complete.")
+    return df_pin, df_geo, df_user
+
+
 if __name__ == "__main__":
 
     Thread(target=run_webserver, daemon=True).start()
     Thread(target=run_infinite_post_data_loop, daemon=True).start()
 
-    while True:
-        sleep(1)
+   
+    sleep(10)
 
-    # # TODO When you arrive at specific Milestones/Tasks uncomment the code associated!
+    df_pin, df_geo, df_user = extract_500_messages_per_topic()
+    print(df_pin.info())
+    print(df_geo.info())
+    print(df_user.info())
 
+    #####
 
-    # # TODO Milestone 4 Task 2
-    # api = FastAPI()
-
-
-    # # TODO Milestone 4 Task 1
-    # producer = KafkaProducer(
-    #     bootstrap_servers="localhost:9092",
-    #     # TODO uncomment and fill in below fields:
-    #     client_id= "Pinterest data producer", # Name the producer apprioprately
-    #     value_serializer= lambda pinmessage: dumps(pinmessage).encode("utf-8") # Hint - Serialise Python dict to bytes using JSON and encode using utf-8
-    # )
-
-
-    # # TODO Milestone 4 task 1
-    # consumer = KafkaConsumer(
-    #     "pin_data.geo",
-    #     bootstrap_servers="localhost:9092",
-    #     # TODO uncomment and fill in below fields:
-    #     auto_offset_reset="earliest",
-    #     value_deserializer= lambda message: loads(message)# Hint - Load the JSON
-    # )
-
-
-    # # TODO Milestone 4 task 2
-    # @api.get("/get_data")
-    # def retrieve_data():
-    #     msg = next(consumer)
-    #     return msg
-
-
-    # # TODO Milestone 4 task 2
-    # @api.post("/send_data")
-    # def send_data(payload: dict, topic: str):
-    #     print(payload)
-    #     # TODO send the data using the Kafka Producer
-        
-        
-    #     producer.flush() # This line ensures all messages are sent to Kafka broker
-        
-
-    # # TODO Milestone 4 task 2
-    # def run_webserver():
-    #     uvicorn.run(app=api, host="localhost", port=8000)
-    #     return 
     
-
-    # # TODO Milestone 4 task 2
-    # Thread(target=run_webserver, daemon=True).start()
-
-
-    # run_infinite_post_data_loop()
-    # print('Working')
-    
-    
-
-
