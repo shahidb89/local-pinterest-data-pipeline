@@ -72,47 +72,57 @@ consumer = KafkaConsumer(
 
 def run_infinite_post_data_loop():
     while True:
-        sleep(random.randint(0, 2))
+        sleep(0.05)
         random_row = random.randint(0, 11000)
         engine = new_connector.create_db_connector()
 
         with engine.connect() as connection:
             try:
+                # Get a single row from pinterest_data and extract the idx
                 pin_result = dict(connection.execute(
                     text(f"SELECT * FROM pinterest_data LIMIT 1 OFFSET {random_row}")
                 ).mappings().first())
 
+                idx = pin_result['idx']
+
+                # Fetch corresponding rows using the same idx
                 geo_result = dict(connection.execute(
-                    text(f"SELECT * FROM geolocation_data LIMIT 1 OFFSET {random_row}")
+                    text("SELECT * FROM geolocation_data WHERE idx = :idx"),
+                    {"idx": idx}
                 ).mappings().first())
 
                 user_result = dict(connection.execute(
-                    text(f"SELECT * FROM user_data LIMIT 1 OFFSET {random_row}")
+                    text("SELECT * FROM user_data WHERE idx = :idx"),
+                    {"idx": idx}
                 ).mappings().first())
 
-                #Post geo data
-                requests.post(
-                    "http://localhost:8000/send_data?topic=pin_data.geo",
-                    data=dumps(geo_result, default=str),
-                    headers={"Content-Type": "application/json"}
-                )
+                if geo_result and user_result:
+                    # Post geo data
+                    requests.post(
+                        "http://localhost:8000/send_data?topic=pin_data.geo",
+                        data=dumps(geo_result, default=str),
+                        headers={"Content-Type": "application/json"}
+                    )
 
-                #Post user data
-                requests.post(
-                    "http://localhost:8000/send_data?topic=pin_data.user",
-                    data=dumps(user_result, default=str),
-                    headers={"Content-Type": "application/json"}
-                )
+                    # Post user data
+                    requests.post(
+                        "http://localhost:8000/send_data?topic=pin_data.user",
+                        data=dumps(user_result, default=str),
+                        headers={"Content-Type": "application/json"}
+                    )
 
-                #Post pin data
-                requests.post(
-                    "http://localhost:8000/send_data?topic=pin_data.pin",
-                    data=dumps(pin_result, default=str),
-                    headers={"Content-Type": "application/json"}
-                )
+                    # Post pin data
+                    requests.post(
+                        "http://localhost:8000/send_data?topic=pin_data.pin",
+                        data=dumps(pin_result, default=str),
+                        headers={"Content-Type": "application/json"}
+                    )
+                else:
+                    print(f"[WARN] Missing geo/user data for idx: {idx}")
 
             except Exception as e:
                 print(f"[ERROR] Failed to fetch or post data: {e}")
+
             
 
      
@@ -151,7 +161,10 @@ from json import loads
 def extract_500_messages_per_topic():
     topics = ['pin_data.pin', 'pin_data.geo', 'pin_data.user']
     consumers = {}
-    data_buffers = {topic: [] for topic in topics}
+
+    # Dictionary to hold messages grouped by idx
+    data_by_idx = defaultdict(dict)
+    complete_rows = set()
 
     # Create a KafkaConsumer per topic
     for topic in topics:
@@ -166,33 +179,44 @@ def extract_500_messages_per_topic():
 
     print("Listening for messages...")
 
-    # Consume messages until 500 messages are collected for each topic
-    while not all(len(data_buffers[topic]) >= 500 for topic in topics):
+    # Collect data until we have 500 complete (matched) rows
+    while len(complete_rows) < 500:
         for topic in topics:
-            if len(data_buffers[topic]) < 500:
-                msg_pack = consumers[topic].poll(timeout_ms=1000, max_records=10)
-                for _, messages in msg_pack.items():
-                    for msg in messages:
-                        data_buffers[topic].append(msg.value)
-                        if len(data_buffers[topic]) >= 500:
-                            break
+            msg_pack = consumers[topic].poll(timeout_ms=500, max_records=10)
+            for _, messages in msg_pack.items():
+                for msg in messages:
+                    data = msg.value
+                    idx = data.get("idx")
+                    if idx is None:
+                        continue
+                    topic_key = topic.split('.')[-1]  # pin, geo, or user
+                    data_by_idx[idx][topic_key] = data
+                    if all(k in data_by_idx[idx] for k in ['pin', 'geo', 'user']):
+                        complete_rows.add(idx)
+        print(f"{len(complete_rows)} complete rows collected...")
 
     # Close all consumers
     for consumer in consumers.values():
         consumer.close()
 
-    # Convert to DataFrames
-    df_pin = pd.DataFrame(data_buffers['pin_data.pin'])
-    df_geo = pd.DataFrame(data_buffers['pin_data.geo'])
-    df_user = pd.DataFrame(data_buffers['pin_data.user'])
+    # Convert matched rows to DataFrames
+    pins, geos, users = [], [], []
+    for idx in list(complete_rows)[:500]:  # just to be safe
+        pins.append(data_by_idx[idx]['pin'])
+        geos.append(data_by_idx[idx]['geo'])
+        users.append(data_by_idx[idx]['user'])
 
-    # Save each DataFrame to a CSV file
+    df_pin = pd.DataFrame(pins)
+    df_geo = pd.DataFrame(geos)
+    df_user = pd.DataFrame(users)
+
     df_pin.to_csv("batch_data/pin_data.csv", index=False)
     df_geo.to_csv("batch_data/geo_data.csv", index=False)
     df_user.to_csv("batch_data/user_data.csv", index=False)
 
-    print("Extraction complete.")
+    print("✅ Aligned extraction complete.")
     return df_pin, df_geo, df_user
+
 
 
 if __name__ == "__main__":
