@@ -64,7 +64,6 @@ python user_posting_emulation.py
 ```
 
 - Simulates users posting pin data as Kafka messages (JSON format).
-- You can optionally modify the script to write to `pin_data.csv` for downstream batch processing.
 
 ---
 

@@ -1,21 +1,20 @@
 import yaml
 import requests
-from time import sleep
 import random
-from multiprocessing import Process
-import boto3
-from json import dumps, loads
 import sqlalchemy
-from sqlalchemy import text
 import psycopg2
-
+import pandas as pd
+import uvicorn
+from json import dumps, loads
+from sqlalchemy import text
+from kafka import KafkaConsumer
+from time import sleep
 from fastapi import FastAPI, Request
 from kafka.producer import KafkaProducer
 from kafka.consumer import KafkaConsumer
-import uvicorn
 from threading import Thread
-
 from collections import defaultdict
+from multiprocessing import Process
 
 random.seed(100)
 
@@ -214,7 +213,7 @@ def extract_500_messages_per_topic():
     df_geo.to_csv("batch_data/geo_data.csv", index=False)
     df_user.to_csv("batch_data/user_data.csv", index=False)
 
-    print("✅ Aligned extraction complete.")
+    print("Aligned extraction complete.")
     return df_pin, df_geo, df_user
 
 
