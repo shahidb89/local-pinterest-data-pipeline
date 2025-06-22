@@ -20,6 +20,9 @@ random.seed(100)
 
 
 class AWSDBConnector:
+    """
+    Class to handle AWS RDS database connection using credentials from a YAML file.
+    """
 
     @staticmethod
     def read_db_creds():
@@ -34,11 +37,10 @@ class AWSDBConnector:
         return db_creds_dict
 
     def __init__(self):
-
+        """
+        Initializes the AWSDBConnector instance with database credentials.
+        """
         db_creds_dict = AWSDBConnector.read_db_creds()
-
-        # TODO  Remember to not upload these creds to github!
-        #   Put them in a creds.yaml and read that file in instead.
         self.HOST = db_creds_dict['HOST']
         self.USER =  db_creds_dict['USER']
         self.PASSWORD =  db_creds_dict['PASSWORD']
@@ -46,6 +48,12 @@ class AWSDBConnector:
         self.PORT =  db_creds_dict ['PORT']
         
     def create_db_connector(self):
+        """
+        Creates a SQLAlchemy engine for connecting to the PostgreSQL database.
+
+        Returns:
+            sqlalchemy.Engine: SQLAlchemy engine object for DB connection.
+        """
         engine = sqlalchemy.create_engine(f"postgresql+psycopg2://{self.USER}:{self.PASSWORD}@{self.HOST}:{self.PORT}/{self.DATABASE}")
         return engine
 
@@ -70,6 +78,10 @@ consumer = KafkaConsumer(
 
 
 def run_infinite_post_data_loop():
+    """
+    Continuously fetches random Pinterest data rows and sends them to
+    FastAPI endpoints that post them to Kafka topics.
+    """
     while True:
         sleep(0.05)
         random_row = random.randint(0, 11000)
@@ -122,13 +134,21 @@ def run_infinite_post_data_loop():
             except Exception as e:
                 print(f"[ERROR] Failed to fetch or post data: {e}")
 
-            
 
-     
 # ---------- FastAPI Routes ----------
 
 @app.post("/send_data")
 async def send_data(payload: dict, topic: str):
+    """
+    Sends a JSON payload to a Kafka topic.
+
+    Args:
+        payload (dict): The data to send.
+        topic (str): The Kafka topic name.
+
+    Returns:
+        dict: Status of message delivery.
+    """
     try:
         producer.send(topic, value=payload)
         producer.flush()
@@ -138,6 +158,12 @@ async def send_data(payload: dict, topic: str):
 
 @app.get("/get_data")
 def retrieve_data():
+    """
+    Retrieves a message from the Kafka consumer.
+
+    Returns:
+        dict: Topic and message data.
+    """
     msg = next(consumer)
     return {
         "topic": msg.topic,
@@ -148,20 +174,23 @@ def retrieve_data():
 # ---------- Start App and Threads ----------
 
 def run_webserver():
+    """
+    Starts the FastAPI web server using Uvicorn.
+    """
     uvicorn.run(app, host="localhost", port=8000)
 
 
 # --------- Batch Extraction ----------------
 
-import pandas as pd
-from kafka import KafkaConsumer
-from json import loads
-
 def extract_500_messages_per_topic():
+    """
+    Extracts 500 complete rows of pin, geo, and user data from Kafka topics.
+
+    Returns:
+        tuple: DataFrames of pin, geo, and user data.
+    """
     topics = ['pin_data.pin', 'pin_data.geo', 'pin_data.user']
     consumers = {}
-
-    # Dictionary to hold messages grouped by idx
     data_by_idx = defaultdict(dict)
     complete_rows = set()
 
@@ -217,12 +246,13 @@ def extract_500_messages_per_topic():
     return df_pin, df_geo, df_user
 
 
-
 if __name__ == "__main__":
-
+    """
+    Entry point for the script. Starts the FastAPI server, data posting loop,
+    and performs batch data extraction.
+    """
     Thread(target=run_webserver, daemon=True).start()
     Thread(target=run_infinite_post_data_loop, daemon=True).start()
-
    
     sleep(10)
 
@@ -230,7 +260,3 @@ if __name__ == "__main__":
     print(df_pin.info())
     print(df_geo.info())
     print(df_user.info())
-
-    #####
-
-    
