@@ -1,138 +1,185 @@
-# 🧩 Pinterest Data Pipeline – Local Kafka + Spark Simulation
 
-This project simulates a **Pinterest-style data pipeline** using **Kafka** for event ingestion and **Apache Spark** (via Databricks) for batch data processing and analytics.
+# Pinterest Data Pipeline – Local Kafka + Spark Simulation
 
-It covers a local emulation of real-time user post streaming into Kafka, then performs data cleaning and analytical queries in Spark using batch-loaded CSVs.
+This project simulates a Pinterest-style data pipeline that uses Kafka for event ingestion and Apache Spark (via Databricks) for batch data processing and analytics.  
+It demonstrates a complete workflow:
+
+1. **Real-time** streaming of user activity into Kafka via a FastAPI service.  
+2. **Batch** extraction of aligned records from Kafka into CSV files.  
+3. **Spark**-based cleaning, transformation, and exploratory analytics.
 
 ---
 
-## 🚀 Project Overview
+## Project Overview
 
 | Component | Description |
 |-----------|-------------|
-| `start_kafka.sh` | Starts local Kafka and Zookeeper servers |
-| `stop_kafka.sh` | Stops Kafka and Zookeeper |
-| `user_posting_emulation.py` | Simulates users posting data to Kafka |
-| `batch_processing_spark_databricks.ipynb` | Spark notebook for cleaning and analyzing the dataset |
+| `start_kafka.sh` | Starts local Kafka and Zookeeper services |
+| `stop_kafka.sh`  | Stops Kafka and Zookeeper |
+| `data_poster.py` | Streams random records from PostgreSQL to Kafka topics in real time (runs a FastAPI server) |
+| `batch_extractor.py` | Consumes Kafka messages, aligns them by `idx`, and writes three CSV files (pin, geo, user) |
+| `batch_processing_spark_databricks.ipynb` | Databricks/Spark notebook that cleans, joins, and analyzes the extracted data |
 
 ---
 
-## 🗂️ Architecture
+## Architecture
 
 ```
-User Emulation ──► Kafka Topic ──► (CSV Sink / Static Files)
-                                         │
-                                ┌────────┴────────┐
-                                │  Spark (Databricks)  │
-                                └────────┬────────┘
-                                         ▼
-                             Batch Cleaning & Analytics
+                +----------------+
+                |  data_poster.py|
+                |  (FastAPI)     |
+                +--------+-------+
+                         |
+                         | HTTP
+                         v
++----------------+   Kafka Topics   +--------------------+
+|  PostgreSQL    | ---------------> | pin_data.pin       |
+|  pinterest_*   |                  | pin_data.geo       |
++----------------+                  | pin_data.user      |
+                                    +---------+----------+
+                                              |
+                                              | batch_extractor.py
+                                              v
+                                  +-----------+-------------+
+                                  |  CSV Sink (pin/geo/user)|
+                                  +-----------+-------------+
+                                              |
+                                              v
+                                   Spark / Databricks Notebook
+                                      (cleaning & analytics)
 ```
 
 ---
 
-## 🛠️ Prerequisites
+## Prerequisites
 
-- Python 3.7+
-- Kafka & Zookeeper installed locally
-- Apache Spark or Databricks notebook environment
-- Kafka Python client: `pip install kafka-python`
-- Input CSVs:
-  - `pin_data.csv`
-  - `geo_data.csv`
-  - `user_data.csv`
+- Python 3.7 or newer  
+- Kafka and Zookeeper installed locally  
+- Apache Spark or a Databricks workspace  
+- Python packages listed in `requirements.txt`
+
+Install all Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
-## 🧪 Running the Simulation Locally
+## Running the Simulation Locally
 
-### 1️⃣ Start Kafka & Zookeeper
+### 1. Start Kafka and Zookeeper
 
 ```bash
 chmod +x start_kafka.sh
 ./start_kafka.sh
 ```
 
-> This script launches both Kafka and Zookeeper on default ports (2181 & 9092).
+Kafka defaults:  
+* Zookeeper → port 2181  
+* Kafka broker → port 9092
 
 ---
 
-### 2️⃣ Simulate User Posts to Kafka
+### 2. Stream Real-Time User Posts
 
 ```bash
-python user_posting_emulation.py
+python data_poster.py
 ```
 
-- Simulates users posting pin data as Kafka messages (JSON format).
+- Launches FastAPI on `http://localhost:8000`  
+- Pulls random records from PostgreSQL and posts them to Kafka topics
 
 ---
 
-### 3️⃣ Batch Processing in Spark (Databricks)
+### 3. Extract Aligned Kafka Messages
 
-1. Open `batch_processing_spark_databricks.ipynb` in **Databricks**
-2. Upload the CSVs to `/FileStore/tables/`:
-   - `pin_data.csv`
-   - `geo_data.csv`
-   - `user_data.csv`
-3. Run the notebook cells sequentially to:
-   - Clean and transform raw data
-   - Join across datasets
-   - Perform analytical queries
+```bash
+python batch_extractor.py
+```
+
+- Subscribes to `pin_data.pin`, `pin_data.geo`, and `pin_data.user`  
+- Collects 500 complete triplets (matched by `idx`)  
+- Writes results to `batch_data/`:
+
+  ```
+  batch_data/pin_data.csv
+  batch_data/geo_data.csv
+  batch_data/user_data.csv
+  ```
 
 ---
 
-## 🧹 Data Cleaning Summary
+### 4. Process Data in Spark
+
+1. Open `batch_processing_spark_databricks.ipynb` in Databricks.  
+2. Upload the three CSV files to `/FileStore/tables/`.  
+3. Run the notebook cells to clean, join, and analyze the data.
+
+---
+
+## Data Cleaning Summary
 
 | Dataset | Key Cleaning Steps |
 |---------|--------------------|
-| `df_pin` | Normalize `follower_count`, clean `save_location`, convert data types, rename/reorder columns |
-| `df_geo` | Merge `latitude` & `longitude` into `coordinates` array, cast `timestamp` |
-| `df_user` | Create `user_name`, cast `date_joined`, define `age_group` |
+| `df_pin`  | Normalize `follower_count`, clean `save_location`, parse dates, rename columns |
+| `df_geo`  | Merge latitude/longitude into a coordinate array, cast timestamps |
+| `df_user` | Standardize `date_joined`, generate `user_name`, assign `age_group` |
 
 ---
 
-## 📊 Analytics Performed
+## Analytics Performed
 
-- 📌 Most popular **category per country**
-- 📅 Category post counts from **2018 to 2022**
-- 🌍 Most-followed user **per country**
-- 👥 Popular categories by **age group** (18–24, 25–35, 36–50, 50+)
-- 📈 Median follower count by **age group** and **year joined**
-- 📆 Number of users joined from **2015 to 2020**
+- Most popular category per country  
+- Category post counts (2018 – 2022)  
+- Most-followed user per country  
+- Popular categories by age group (18–24, 25–35, 36–50, 50+)  
+- Median follower count by age group and year joined  
+- User join trends from 2015 – 2020  
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
-📁 pinterest-pipeline/
+pinterest-pipeline/
 ├── start_kafka.sh
 ├── stop_kafka.sh
-├── user_posting_emulation.py
+├── data_poster.py
+├── batch_extractor.py
 ├── batch_processing_spark_databricks.ipynb
-├── pin_data.csv
-├── geo_data.csv
-└── user_data.csv
+├── requirements.txt
+└── batch_data/
+    ├── pin_data.csv
+    ├── geo_data.csv
+    └── user_data.csv
 ```
 
 ---
 
-## 🧨 Stop Kafka & Zookeeper
+## Stopping Kafka and Zookeeper
 
 ```bash
 ./stop_kafka.sh
 ```
 
-> Gracefully shuts down the Kafka and Zookeeper services.
+Shuts down both services gracefully.
 
 ---
 
-## 📜 License
+## License
 
-MIT License. Free to use for learning and educational purposes.
+This project is released under the MIT License.  
+Free to use for learning, testing, and educational purposes.
 
 ---
 
-## 🙋‍♀️ Author & Credits
+## Author & Credits
 
-This simulation was built to demonstrate authors skills in building hybrid data pipelines using real-time Kafka ingestion and batch analytics with Spark. Ideal for learning how modern data platforms work.
+Created by **Shahid Hadi** to demonstrate real-time and batch data-engineering techniques:
+
+- Kafka-driven event ingestion  
+- FastAPI microservices  
+- Databricks/Spark batch analytics  
+
+Contributions and feedback are welcome.
